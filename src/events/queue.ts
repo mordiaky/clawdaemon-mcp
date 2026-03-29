@@ -1,11 +1,34 @@
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { db } from "../db/client.js";
 import { events } from "../db/schema.js";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, gte } from "drizzle-orm";
 
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const DEDUP_WINDOW_MS = parseInt(process.env.CLAWDAEMON_DEDUP_WINDOW_MS ?? "60000", 10); // 60s
 
-export function pushEvent(automationId: string, type: string, payload: unknown): string {
+function contentHash(automationId: string, type: string, payload: unknown): string {
+  return createHash("sha256")
+    .update(`${automationId}:${type}:${JSON.stringify(payload)}`)
+    .digest("hex");
+}
+
+export function pushEvent(automationId: string, type: string, payload: unknown): string | null {
+  const hash = contentHash(automationId, type, payload);
+  const windowStart = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
+
+  // Check for duplicate within the dedup window
+  const dup = db
+    .select({ id: events.id })
+    .from(events)
+    .where(and(eq(events.contentHash, hash), gte(events.createdAt, windowStart)))
+    .limit(1)
+    .all();
+
+  if (dup.length > 0) {
+    process.stderr.write(`[clawdaemon] dedup: skipped duplicate event (hash=${hash.slice(0, 12)}…)\n`);
+    return null;
+  }
+
   const id = randomUUID();
   const now = new Date().toISOString();
   const ttlMs = parseTtl(process.env.CLAWDAEMON_EVENT_TTL ?? "7d");
@@ -16,6 +39,7 @@ export function pushEvent(automationId: string, type: string, payload: unknown):
     automationId,
     type,
     payload: JSON.stringify(payload),
+    contentHash: hash,
     acknowledged: false,
     createdAt: now,
     expiresAt,

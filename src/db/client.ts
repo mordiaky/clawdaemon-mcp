@@ -24,6 +24,7 @@ sqlite.exec(`
     automation_id TEXT NOT NULL,
     type TEXT NOT NULL,
     payload TEXT NOT NULL,
+    content_hash TEXT,
     acknowledged INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     acknowledged_at TEXT,
@@ -40,6 +41,13 @@ sqlite.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+
+// Migrate: add content_hash column if missing (existing DBs)
+try {
+  sqlite.exec(`ALTER TABLE events ADD COLUMN content_hash TEXT`);
+} catch {
+  // Column already exists — ignore
+}
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite };

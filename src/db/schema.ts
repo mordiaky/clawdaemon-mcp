@@ -5,6 +5,7 @@ export const events = sqliteTable("events", {
   automationId: text("automation_id").notNull(),
   type: text("type").notNull(), // cron-trigger, webhook-hit, message-received, browser-result
   payload: text("payload").notNull(), // JSON string
+  contentHash: text("content_hash"),   // SHA-256 of automationId+type+payload for dedup
   acknowledged: integer("acknowledged", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull(),
   acknowledgedAt: text("acknowledged_at"),
