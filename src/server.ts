@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./mcp/tools.js";
+import { getGatewayClient } from "./gateway/client.js";
 
 const server = new McpServer({
   name: "clawdaemon",
@@ -8,6 +9,14 @@ const server = new McpServer({
 });
 
 registerTools(server);
+
+// Connect to gateway in background — don't block MCP startup
+const gw = getGatewayClient();
+gw.connect().then(() => {
+  process.stderr.write("[clawdaemon] gateway connection ready\n");
+}).catch((err) => {
+  process.stderr.write(`[clawdaemon] gateway connection deferred: ${err.message}\n`);
+});
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

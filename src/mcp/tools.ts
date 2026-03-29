@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { isDaemonRunning, connectToDaemon } from "../daemon/connection.js";
-import { pollEvents, acknowledgeEvent, getEventHistory, pruneExpiredEvents } from "../events/queue.js";
+import { getGatewayClient } from "../gateway/client.js";
+import { pollEvents, acknowledgeEvent, getEventHistory, pruneExpiredEvents, pushEvent } from "../events/queue.js";
 
 export function registerTools(server: McpServer): void {
   // --- Daemon Status ---
@@ -10,21 +10,22 @@ export function registerTools(server: McpServer): void {
     "Check if the OpenClaw daemon is running and healthy",
     {},
     async () => {
-      const running = await isDaemonRunning();
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              running,
-              socket: process.env.CLAWDAEMON_SOCKET ?? "/tmp/clawdaemon.sock",
-              message: running
-                ? "OpenClaw daemon is running and accepting connections."
-                : "OpenClaw daemon is not running. Start it with: openclaw daemon start",
-            }),
-          },
-        ],
-      };
+      const gw = getGatewayClient();
+      try {
+        await gw.connect();
+        return jsonResponse({
+          running: true,
+          gateway: gw.isConnected(),
+          methods: gw.getMethods().length,
+          message: "Connected to OpenClaw gateway.",
+        });
+      } catch (err) {
+        return jsonResponse({
+          running: false,
+          gateway: false,
+          message: `Cannot connect to OpenClaw gateway: ${(err as Error).message}`,
+        });
+      }
     }
   );
 
@@ -35,23 +36,16 @@ export function registerTools(server: McpServer): void {
     { limit: z.number().min(1).max(200).default(50).describe("Max events to return") },
     async ({ limit }) => {
       const results = pollEvents(limit);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              count: results.length,
-              events: results.map((e) => ({
-                id: e.id,
-                automationId: e.automationId,
-                type: e.type,
-                payload: JSON.parse(e.payload),
-                createdAt: e.createdAt,
-              })),
-            }),
-          },
-        ],
-      };
+      return jsonResponse({
+        count: results.length,
+        events: results.map((e) => ({
+          id: e.id,
+          automationId: e.automationId,
+          type: e.type,
+          payload: JSON.parse(e.payload),
+          createdAt: e.createdAt,
+        })),
+      });
     }
   );
 
@@ -62,17 +56,10 @@ export function registerTools(server: McpServer): void {
     { eventId: z.string().uuid().describe("The event ID to acknowledge") },
     async ({ eventId }) => {
       const success = acknowledgeEvent(eventId);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              success,
-              message: success ? "Event acknowledged." : "Event not found.",
-            }),
-          },
-        ],
-      };
+      return jsonResponse({
+        success,
+        message: success ? "Event acknowledged." : "Event not found.",
+      });
     }
   );
 
@@ -86,26 +73,19 @@ export function registerTools(server: McpServer): void {
     },
     async ({ limit, offset }) => {
       const results = getEventHistory(limit, offset);
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              count: results.length,
-              offset,
-              events: results.map((e) => ({
-                id: e.id,
-                automationId: e.automationId,
-                type: e.type,
-                payload: JSON.parse(e.payload),
-                acknowledged: e.acknowledged,
-                createdAt: e.createdAt,
-                acknowledgedAt: e.acknowledgedAt,
-              })),
-            }),
-          },
-        ],
-      };
+      return jsonResponse({
+        count: results.length,
+        offset,
+        events: results.map((e) => ({
+          id: e.id,
+          automationId: e.automationId,
+          type: e.type,
+          payload: JSON.parse(e.payload),
+          acknowledged: e.acknowledged,
+          createdAt: e.createdAt,
+          acknowledgedAt: e.acknowledgedAt,
+        })),
+      });
     }
   );
 
@@ -116,17 +96,10 @@ export function registerTools(server: McpServer): void {
     {},
     async () => {
       const pruned = pruneExpiredEvents();
-      return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify({
-              pruned,
-              message: `Removed ${pruned} expired event(s).`,
-            }),
-          },
-        ],
-      };
+      return jsonResponse({
+        pruned,
+        message: `Removed ${pruned} expired event(s).`,
+      });
     }
   );
 
@@ -140,16 +113,7 @@ export function registerTools(server: McpServer): void {
       text: z.string().describe("Message text to send"),
     },
     async ({ channel, conversationId, text }) => {
-      try {
-        const socket = await connectToDaemon();
-        const request = { action: "send_message", channel, conversationId, text };
-
-        return await sendDaemonRequest(socket, request);
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayToolCall("message", { action: "send", channel, conversationId, text });
     }
   );
 
@@ -159,14 +123,7 @@ export function registerTools(server: McpServer): void {
     "List all connected messaging channels on the OpenClaw daemon",
     {},
     async () => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "list_channels" });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayRequest("channels_status");
     }
   );
 
@@ -181,20 +138,7 @@ export function registerTools(server: McpServer): void {
       channel: z.string().optional().describe("Optional: messaging channel to send results to"),
     },
     async ({ name, schedule, action, channel }) => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, {
-          action: "create_cron",
-          name,
-          schedule,
-          task: action,
-          channel,
-        });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayRequest("cron_add", { name, schedule, action, channel });
     }
   );
 
@@ -204,14 +148,7 @@ export function registerTools(server: McpServer): void {
     "List all active automations (cron jobs, webhooks, monitors)",
     {},
     async () => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "list_automations" });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayRequest("cron_list");
     }
   );
 
@@ -221,14 +158,7 @@ export function registerTools(server: McpServer): void {
     "Remove an automation by ID",
     { automationId: z.string().describe("The automation ID to delete") },
     async ({ automationId }) => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "delete_automation", automationId });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayRequest("cron_remove", { id: automationId });
     }
   );
 
@@ -238,14 +168,7 @@ export function registerTools(server: McpServer): void {
     "Open a URL in the OpenClaw browser automation engine",
     { url: z.string().url().describe("URL to navigate to") },
     async ({ url }) => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "browser_navigate", url });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayToolCall("web_fetch", { url });
     }
   );
 
@@ -257,14 +180,7 @@ export function registerTools(server: McpServer): void {
       selector: z.string().optional().describe("CSS selector to extract from (default: full page)"),
     },
     async ({ selector }) => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "browser_extract", selector });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return gatewayToolCall("web_fetch", { selector });
     }
   );
 
@@ -274,41 +190,37 @@ export function registerTools(server: McpServer): void {
     "Take a screenshot of the current browser page",
     {},
     async () => {
-      try {
-        const socket = await connectToDaemon();
-        return await sendDaemonRequest(socket, { action: "browser_screenshot" });
-      } catch (err) {
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }],
-        };
-      }
+      return jsonResponse({
+        error: "Browser screenshots require the OpenClaw desktop agent. Use browser_navigate + browser_extract for web content.",
+      });
     }
   );
 }
 
-function sendDaemonRequest(
-  socket: import("net").Socket,
-  request: Record<string, unknown>
-): Promise<{ content: { type: "text"; text: string }[] }> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error("Daemon request timed out after 30s"));
-    }, 30000);
+async function gatewayRequest(method: string, params?: unknown) {
+  try {
+    const gw = getGatewayClient();
+    await gw.connect();
+    const result = await gw.request(method, params);
+    return jsonResponse(result);
+  } catch (err) {
+    return jsonResponse({ error: (err as Error).message });
+  }
+}
 
-    socket.once("data", (data) => {
-      clearTimeout(timeout);
-      try {
-        const response = JSON.parse(data.toString());
-        resolve({
-          content: [{ type: "text", text: JSON.stringify(response) }],
-        });
-      } catch {
-        resolve({
-          content: [{ type: "text", text: data.toString() }],
-        });
-      }
-    });
+async function gatewayToolCall(tool: string, args?: Record<string, unknown>) {
+  try {
+    const gw = getGatewayClient();
+    await gw.connect();
+    const result = await gw.request("tools_invoke", { tool, args });
+    return jsonResponse(result);
+  } catch (err) {
+    return jsonResponse({ error: (err as Error).message });
+  }
+}
 
-    socket.write(JSON.stringify(request) + "\n");
-  });
+function jsonResponse(data: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+  };
 }

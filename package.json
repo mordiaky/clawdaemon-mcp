@@ -36,11 +36,13 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "better-sqlite3": "^11.9.1",
     "drizzle-orm": "^0.45.1",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
