@@ -2,8 +2,44 @@ import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
 
 const PORT = parseInt(process.env.CLAUDE_PROXY_PORT || "18790", 10);
+
+// --- Auth: reuse gateway token from openclaw.json ---
+const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
+
+function loadGatewayToken(): string | null {
+  if (!existsSync(OPENCLAW_CONFIG_PATH)) return null;
+  try {
+    const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_PATH, "utf-8"));
+    return config?.gateway?.auth?.token || null;
+  } catch {
+    return null;
+  }
+}
+
+const AUTH_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || loadGatewayToken();
+
+// --- Auto-register apiKey in provider config ---
+function syncApiKeyToProvider(): void {
+  if (!AUTH_TOKEN || !existsSync(OPENCLAW_CONFIG_PATH)) return;
+  try {
+    const config = JSON.parse(readFileSync(OPENCLAW_CONFIG_PATH, "utf-8"));
+    const provider = config?.models?.providers?.["claude-proxy"];
+    if (!provider) return;
+    if (provider.apiKey === AUTH_TOKEN) return; // already synced
+    provider.apiKey = AUTH_TOKEN;
+    writeFileSync(OPENCLAW_CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
+    console.error(`[claude-proxy] Synced gateway token → provider apiKey in openclaw.json`);
+  } catch (err: any) {
+    console.error(`[claude-proxy] Warning: could not sync apiKey: ${err.message}`);
+  }
+}
+
+syncApiKeyToProvider();
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MCP_CONFIG = join(__dirname, "..", "openclaw-mcp-config.json");
 
@@ -101,6 +137,14 @@ const server = createServer(async (req, res) => {
 
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
+  // --- Bearer token auth (uses gateway token from openclaw.json) ---
+  if (AUTH_TOKEN) {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || authHeader !== `Bearer ${AUTH_TOKEN}`) {
+      return jsonRes(res, 401, { error: { message: "Unauthorized", type: "auth_error" } });
+    }
+  }
+
   if (req.url === "/v1/models" && req.method === "GET") {
     return jsonRes(res, 200, {
       object: "list",
@@ -163,4 +207,5 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.error(`[claude-proxy] listening on http://127.0.0.1:${PORT}/v1`);
   console.error(`[claude-proxy] Claude CLI → OpenAI-compatible API proxy`);
+  console.error(`[claude-proxy] Auth: ${AUTH_TOKEN ? "enabled (gateway token)" : "disabled (no token found)"}`);
 });

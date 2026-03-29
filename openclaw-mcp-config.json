@@ -5,6 +5,11 @@
       "command": "node",
       "args": ["REPLACE_WITH_ABSOLUTE_PATH/clawdaemon-mcp/build/server.js"],
       "env": {}
+    },
+    "hypothesis-tracker": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/home/mordiaky/Projects/hypothesis-tracker/dist/index.js"]
     }
   }
 }
