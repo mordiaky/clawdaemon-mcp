@@ -182,11 +182,7 @@ export function registerTools(server: McpServer): void {
     "Navigate to a URL using the OpenClaw browser control",
     { url: z.string().url().describe("URL to navigate to") },
     async ({ url }) => {
-      return gatewayRequest("browser.request", {
-        method: "POST",
-        path: "/navigate",
-        body: { url },
-      });
+      return toolInvokeRequest("browser", "open", { url });
     }
   );
 
@@ -198,11 +194,7 @@ export function registerTools(server: McpServer): void {
       selector: z.string().optional().describe("CSS selector to extract from (default: full page)"),
     },
     async ({ selector }) => {
-      return gatewayRequest("browser.request", {
-        method: "GET",
-        path: "/content",
-        query: selector ? { selector } : undefined,
-      });
+      return toolInvokeRequest("browser", "snapshot", selector ? { selector } : {});
     }
   );
 
@@ -212,12 +204,24 @@ export function registerTools(server: McpServer): void {
     "Take a screenshot of the current browser page",
     {},
     async () => {
-      return gatewayRequest("browser.request", {
-        method: "GET",
-        path: "/screenshot",
-      });
+      return toolInvokeRequest("browser", "screenshot", {});
     }
   );
+}
+
+async function toolInvokeRequest(tool: string, action: string, args?: Record<string, unknown>) {
+  try {
+    const gw = getGatewayClient();
+    await gw.connect();
+    const result = await gw.toolInvoke(tool, action, args) as Record<string, unknown>;
+    // OpenClaw /tools/invoke returns { content: [...], details: {...} } — already MCP-compatible
+    if (result?.content && Array.isArray(result.content)) {
+      return { content: result.content as Array<{ type: "text"; text: string }> };
+    }
+    return jsonResponse(result);
+  } catch (err) {
+    return jsonResponse({ error: (err as Error).message });
+  }
 }
 
 async function gatewayRequest(method: string, params?: unknown) {

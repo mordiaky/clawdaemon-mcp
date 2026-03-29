@@ -79,14 +79,17 @@ After adding, **restart your Claude Code session** for the new tools to load.
 
 ## MCP Tools
 
+### Daemon
+| Tool | What it does |
+|------|-------------|
+| `daemon_status` | Check if OpenClaw gateway is running and healthy |
+
 ### Automation Management
 | Tool | What it does |
 |------|-------------|
 | `create_cron` | Schedule a recurring automation |
-| `create_webhook` | Set up a webhook trigger |
 | `list_automations` | List all active automations |
 | `delete_automation` | Remove an automation |
-| `get_automation_status` | Check if an automation is healthy |
 
 ### Event Polling
 | Tool | What it does |
@@ -94,29 +97,30 @@ After adding, **restart your Claude Code session** for the new tools to load.
 | `poll_events` | Get events that happened since last check |
 | `acknowledge_event` | Mark an event as processed |
 | `get_event_history` | Browse past events |
+| `prune_events` | Remove expired events from the queue |
 
 ### Messaging
 | Tool | What it does |
 |------|-------------|
 | `send_message` | Send a message via any connected channel |
-| `read_messages` | Read recent messages from a channel |
 | `list_channels` | List connected messaging channels |
 
 ### Browser Automation
 | Tool | What it does |
 |------|-------------|
-| `browser_navigate` | Open a URL |
-| `browser_extract` | Extract content from a page |
-| `browser_click` | Click an element |
+| `browser_navigate` | Open a URL in the browser |
+| `browser_extract` | Get a DOM snapshot of the current page |
 | `browser_screenshot` | Take a screenshot |
+
+> **Note:** Browser tools use OpenClaw's HTTP `/tools/invoke` endpoint (the browser plugin isn't available over WebSocket). The MCP server handles this automatically using the same auth token.
 
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CLAWDAEMON_SOCKET` | `/tmp/clawdaemon.sock` | Path to daemon socket |
-| `CLAWDAEMON_DB` | `~/.clawdaemon/events.db` | Event queue database |
-| `CLAWDAEMON_EVENT_TTL` | `7d` | How long to keep unacknowledged events |
+| `OPENCLAW_GATEWAY_URL` | `ws://127.0.0.1:18789` | Gateway WebSocket URL |
+| `OPENCLAW_GATEWAY_TOKEN` | *(from ~/.openclaw/openclaw.json)* | Auth token for gateway |
+| `CLAWDAEMON_DB` | `~/.clawdaemon/events.db` | Event queue database path |
 
 ## Troubleshooting
 

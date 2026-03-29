@@ -199,6 +199,23 @@ export class GatewayClient {
     return this.availableMethods;
   }
 
+  /** Invoke a tool via HTTP POST /tools/invoke (for tools not available over WebSocket) */
+  async toolInvoke(tool: string, action: string, args?: Record<string, unknown>): Promise<unknown> {
+    const httpUrl = this.config.url.replace(/^ws/, "http");
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.config.token) {
+      headers["Authorization"] = `Bearer ${this.config.token}`;
+    }
+    const body = JSON.stringify({ tool, action, args: args ?? {} });
+    const res = await fetch(`${httpUrl}/tools/invoke`, { method: "POST", headers, body });
+    const json = await res.json() as Record<string, unknown>;
+    if (!res.ok || json.ok === false) {
+      const err = json.error as Record<string, string> | undefined;
+      throw new Error(err?.message ?? `tools/invoke failed (${res.status})`);
+    }
+    return json.result;
+  }
+
   close() {
     this.ready = false;
     this.ws?.close();
