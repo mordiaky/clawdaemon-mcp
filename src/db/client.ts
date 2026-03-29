@@ -17,5 +17,29 @@ const sqlite: BetterSqlite3.Database = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
 
+// Auto-create tables if they don't exist
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    automation_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    acknowledged_at TEXT,
+    expires_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS automations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    config TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
 export const db = drizzle(sqlite, { schema });
 export { sqlite };

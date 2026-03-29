@@ -123,7 +123,7 @@ export function registerTools(server: McpServer): void {
     "List all connected messaging channels on the OpenClaw daemon",
     {},
     async () => {
-      return gatewayRequest("channels_status");
+      return gatewayRequest("channels.status");
     }
   );
 
@@ -138,7 +138,7 @@ export function registerTools(server: McpServer): void {
       channel: z.string().optional().describe("Optional: messaging channel to send results to"),
     },
     async ({ name, schedule, action, channel }) => {
-      return gatewayRequest("cron_add", { name, schedule, action, channel });
+      return gatewayRequest("cron.add", { name, schedule, action, channel });
     }
   );
 
@@ -148,7 +148,7 @@ export function registerTools(server: McpServer): void {
     "List all active automations (cron jobs, webhooks, monitors)",
     {},
     async () => {
-      return gatewayRequest("cron_list");
+      return gatewayRequest("cron.list");
     }
   );
 
@@ -158,7 +158,7 @@ export function registerTools(server: McpServer): void {
     "Remove an automation by ID",
     { automationId: z.string().describe("The automation ID to delete") },
     async ({ automationId }) => {
-      return gatewayRequest("cron_remove", { id: automationId });
+      return gatewayRequest("cron.remove", { id: automationId });
     }
   );
 

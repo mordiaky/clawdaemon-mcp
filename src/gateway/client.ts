@@ -123,14 +123,14 @@ export class GatewayClient {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: "cli",
+        id: "openclaw-tui",
         displayName: "ClawDaemon MCP",
         version: "0.1.0",
         platform: process.platform,
         mode: "cli",
       },
       caps: [],
-      scopes: ["operator.admin"],
+      scopes: ["operator.read", "operator.write", "operator.approvals"],
       auth: this.config.token ? { token: this.config.token } : undefined,
     };
 
