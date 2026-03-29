@@ -1,0 +1,49 @@
+{
+  "name": "clawdaemon-mcp",
+  "version": "0.1.0",
+  "description": "MCP server that connects Claude Code to a persistent OpenClaw daemon for 24/7 automation — cron jobs, webhooks, messaging, and browser control with event polling",
+  "type": "module",
+  "main": "build/server.js",
+  "bin": {
+    "clawdaemon-mcp": "build/server.js"
+  },
+  "files": [
+    "build",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "test": "vitest",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "openclaw",
+    "automation",
+    "cron",
+    "webhooks",
+    "daemon",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "better-sqlite3": "^11.9.1",
+    "drizzle-orm": "^0.45.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.1"
+  }
+}
