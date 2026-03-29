@@ -1,6 +1,6 @@
 # ClawDaemon MCP
 
-An MCP server that connects Claude Code to a persistent OpenClaw daemon for 24/7 automation.
+An MCP server that connects Claude Code to a persistent OpenClaw daemon for 24/7 automation. Includes a Claude CLI proxy that lets OpenClaw use your Claude Code subscription as its AI brain — no separate API key needed.
 
 ## What it does
 
@@ -8,53 +8,42 @@ OpenClaw runs as a background daemon on your machine. This MCP server gives Clau
 
 The key difference from other approaches: **automations keep running when Claude Code isn't open**. When you come back, Claude catches up on everything that happened through an event queue.
 
-## How it works
+## Architecture
 
 ```
-Claude Code  <--MCP stdio-->  ClawDaemon MCP Server  <--socket-->  OpenClaw Daemon (24/7)
-                                      |
-                                SQLite Event Queue
+                        ┌─────────────────────────────────────────────┐
+                        │              OpenClaw Daemon (24/7)          │
+                        │  ┌─────────┐ ┌──────┐ ┌────────┐ ┌───────┐ │
+                        │  │ Discord │ │ Cron │ │Browser │ │ Gmail │ │
+                        │  └────┬────┘ └──┬───┘ └───┬────┘ └───┬───┘ │
+                        │       └─────────┴─────────┴──────────┘     │
+                        │                    │                        │
+                        │              Gateway (:18789)               │
+                        └──────────┬─────────────────┬───────────────┘
+                                   │                 │
+              MCP stdio            │  OpenAI API     │
+Claude Code ◄──────────► MCP Server│  (:18790)       │
+                              │    │                 │
+                        SQLite DB  └── Claude Proxy ◄┘
+                                         │
+                                    claude --print
+                                   (your CLI sub)
 ```
 
-- **OpenClaw Daemon** runs in the background (systemd/launchd). It handles cron jobs, webhooks, messaging channels, and browser automation.
+- **OpenClaw Daemon** runs in the background (systemd/launchd). Handles cron, messaging channels, browser automation.
 - **MCP Server** connects to the daemon and exposes tools for Claude Code.
+- **Claude Proxy** translates OpenAI API calls to `claude --print` calls. OpenClaw thinks it's talking to an API, but it's using your Claude Code subscription.
 - **Event Queue** stores results from automations. When Claude Code reconnects, it polls for missed events.
 
 ## Prerequisites
 
+- [Claude Code CLI](https://claude.ai/claude-code) installed and authenticated
 - [OpenClaw](https://github.com/openclaw/openclaw) installed locally
 - Node.js 22+
 
-## Setting Up OpenClaw
+## Quick Start
 
-ClawDaemon needs a running OpenClaw gateway to connect to. If you haven't set up OpenClaw yet:
-
-### 1. Install and build OpenClaw
-
-```bash
-git clone https://github.com/openclaw/openclaw.git
-cd openclaw
-npx pnpm install
-npx pnpm build
-```
-
-> **Note:** OpenClaw uses pnpm, not npm. If you don't have pnpm installed globally, `npx pnpm` works fine.
-
-### 2. Start the gateway
-
-```bash
-node openclaw.mjs gateway run
-```
-
-The gateway starts on `http://127.0.0.1:18789` by default. You'll see a web UI at that address.
-
-### 3. Device pairing
-
-The first time you connect, OpenClaw will create a device identity and request pairing. You'll need to **approve the pairing request** from the gateway's web UI or CLI before the MCP connection will work.
-
-If you're connecting a new device or reconnecting after a reinstall, you may need to approve pairing again.
-
-## Install
+### 1. Install
 
 ```bash
 git clone https://github.com/mordiaky/clawdaemon-mcp.git
@@ -63,19 +52,115 @@ npm install
 npm run build
 ```
 
-## Connect to Claude Code
+### 2. Set up OpenClaw
+
+If you haven't installed OpenClaw yet:
+
+```bash
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+npx pnpm install
+npx pnpm build
+```
+
+Start the gateway:
+
+```bash
+node openclaw.mjs gateway run
+```
+
+The gateway starts on `http://127.0.0.1:18789` by default.
+
+### 3. Connect MCP to Claude Code
 
 ```bash
 claude mcp add clawdaemon -- node /absolute/path/to/clawdaemon-mcp/build/server.js
 ```
 
-You can also add OpenClaw's built-in MCP server for direct messaging tools:
+Optionally add OpenClaw's built-in messaging tools:
 
 ```bash
 claude mcp add openclaw -- node /absolute/path/to/openclaw/openclaw.mjs mcp serve
 ```
 
-After adding, **restart your Claude Code session** for the new tools to load.
+Restart Claude Code for the tools to load.
+
+### 4. Set up the Claude Proxy (optional)
+
+The Claude Proxy lets OpenClaw use your Claude Code CLI subscription as its AI model. This means OpenClaw can respond to Discord messages, run heartbeat tasks, and process automations — all powered by Claude, with no separate API key.
+
+#### Start the proxy
+
+```bash
+cd clawdaemon-mcp
+npm run proxy
+```
+
+The proxy listens on `http://127.0.0.1:18790/v1` and translates OpenAI-compatible API calls into `claude --print` calls.
+
+#### Configure OpenClaw to use the proxy
+
+Add to your `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "models": {
+    "providers": {
+      "claude-proxy": {
+        "baseUrl": "http://127.0.0.1:18790/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "claude-cli",
+            "name": "Claude via CLI Proxy",
+            "input": ["text", "image"],
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "claude-proxy/claude-cli"
+      }
+    }
+  }
+}
+```
+
+Restart the gateway to apply:
+
+```bash
+openclaw gateway restart
+```
+
+#### Give the proxy access to your MCP servers
+
+Edit `openclaw-mcp-config.json` to add any MCP servers you want the proxy-spawned Claude to have access to:
+
+```json
+{
+  "mcpServers": {
+    "clawdaemon": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/clawdaemon-mcp/build/server.js"],
+      "env": {}
+    },
+    "your-other-server": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/your-server/build/index.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+The proxy passes this config to `claude --print --mcp-config` so the Claude instance that responds to messages has full tool access.
 
 ## MCP Tools
 
@@ -112,60 +197,92 @@ After adding, **restart your Claude Code session** for the new tools to load.
 | `browser_extract` | Get a DOM snapshot of the current page |
 | `browser_screenshot` | Take a screenshot |
 
-> **Note:** Browser tools use OpenClaw's HTTP `/tools/invoke` endpoint (the browser plugin isn't available over WebSocket). The MCP server handles this automatically using the same auth token.
-
 ## Configuration
+
+### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OPENCLAW_GATEWAY_URL` | `ws://127.0.0.1:18789` | Gateway WebSocket URL |
 | `OPENCLAW_GATEWAY_TOKEN` | *(from ~/.openclaw/openclaw.json)* | Auth token for gateway |
 | `CLAWDAEMON_DB` | `~/.clawdaemon/events.db` | Event queue database path |
+| `CLAUDE_PROXY_PORT` | `18790` | Port for the Claude CLI proxy |
+
+## How the Claude Proxy Works
+
+The proxy is a lightweight HTTP server that makes Claude Code CLI look like an OpenAI-compatible API:
+
+1. OpenClaw sends a standard `/v1/chat/completions` request
+2. The proxy converts the messages to a prompt string
+3. It spawns `claude --print --output-format json --mcp-config openclaw-mcp-config.json`
+4. Claude processes the prompt with full MCP tool access
+5. The proxy wraps the response in OpenAI format and returns it
+6. OpenClaw delivers the response to Discord/Telegram/etc.
+
+Supports both streaming (SSE) and non-streaming responses.
+
+## Channel Setup (Discord example)
+
+Once the proxy is running and OpenClaw is configured to use it, add a messaging channel:
+
+1. Create a Discord bot at https://discord.com/developers/applications
+2. Get the bot token, enable Message Content Intent
+3. Add to `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "groupPolicy": "open",
+      "accounts": {
+        "default": {
+          "token": "YOUR_DISCORD_BOT_TOKEN"
+        }
+      }
+    }
+  }
+}
+```
+
+4. Restart the gateway and invite the bot to your server
+5. DM the bot to trigger pairing, then approve: `openclaw pairing approve discord <CODE>`
+
+Claude will now respond to Discord messages through the proxy.
 
 ## Troubleshooting
 
 ### MCP server won't connect / tools not showing up
 
-1. **Restart Claude Code** — MCP tools only load at session start. After adding or fixing a server, restart.
-2. **Check the gateway is running** — Visit `http://127.0.0.1:18789` in your browser. If it's not loading, start it with `node openclaw.mjs gateway run` from your OpenClaw directory.
-3. **Check MCP server status** — Run `/mcp` in Claude Code to see which servers are connected and which have errors.
+1. **Restart Claude Code** — MCP tools only load at session start.
+2. **Check the gateway is running** — Visit `http://127.0.0.1:18789`.
+3. **Check MCP server status** — Run `/mcp` in Claude Code.
 
-### "Connection refused" or socket errors
+### Claude Proxy not responding
 
-The OpenClaw gateway isn't running. Start it:
+1. **Check the proxy is running** — `curl http://127.0.0.1:18790/v1/models`
+2. **Check Claude CLI is authenticated** — `claude --version`
+3. **Check proxy logs** — Logs go to stderr. Run `npm run proxy` in a terminal to see them.
 
-```bash
-cd /path/to/openclaw
-node openclaw.mjs gateway run
-```
+### Discord bot connects but doesn't receive messages
 
-### Stale device identity
+1. Enable all three Privileged Gateway Intents in the Discord Developer Portal (Message Content, Server Members, Presence)
+2. Set `groupPolicy: "open"` in the Discord channel config
+3. DM the bot and complete the pairing flow
 
-If OpenClaw was reinstalled or the gateway entrypoint changed, the old device identity may be invalid. Signs: connection errors even though the gateway is running.
+### "Awaiting gateway readiness" on restart
 
-**Fix:**
-1. Delete the stale device identity from OpenClaw's data directory
-2. Restart the gateway: `node openclaw.mjs gateway run`
-3. Approve the new device's pairing request from the gateway web UI at `http://127.0.0.1:18789`
-
-### Gateway entrypoint changed after update
-
-If you updated OpenClaw and the gateway won't start, the entrypoint path may have moved. Reinstall/rebuild:
+Discord's WebSocket sometimes doesn't reconnect cleanly. Stop the gateway, wait 15 seconds, then restart:
 
 ```bash
-cd /path/to/openclaw
-npx pnpm install
-npx pnpm build
-node openclaw.mjs gateway run
+systemctl --user stop openclaw-gateway.service
+sleep 15
+openclaw gateway restart
 ```
-
-### Tools load but return errors
-
-If MCP tools appear in Claude Code but return errors when called, the gateway is likely down or the device pairing expired. Check the gateway is running and re-approve pairing if needed.
 
 ## Why this exists
 
-OpenClaw is powerful but Anthropic's ToS prohibits extracting Claude OAuth tokens for third-party tools. This MCP server flips the direction — Claude Code calls OpenClaw through MCP, staying fully compliant. OpenClaw provides the automation muscles, Claude provides the brain.
+OpenClaw is a powerful automation daemon but its built-in AI requires separate API keys. Claude Code users already have a Claude subscription. This MCP server + proxy lets you use OpenClaw's full automation stack (messaging, cron, browser, webhooks) powered entirely by your existing Claude Code subscription — no additional API costs, no ToS violations.
 
 ## License
 

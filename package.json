@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "build": "tsc",
+    "proxy": "tsx src/claude-proxy.ts",
     "test": "vitest",
     "lint": "eslint src/"
   },

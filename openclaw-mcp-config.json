@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "clawdaemon": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["REPLACE_WITH_ABSOLUTE_PATH/clawdaemon-mcp/build/server.js"],
+      "env": {}
+    }
+  }
+}
