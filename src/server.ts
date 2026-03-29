@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerTools } from "./mcp/tools.js";
 import { getGatewayClient } from "./gateway/client.js";
+import "./db/client.js"; // Ensure DB tables are created at startup
 
 const server = new McpServer({
   name: "clawdaemon",

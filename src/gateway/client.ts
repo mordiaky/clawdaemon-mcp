@@ -50,12 +50,23 @@ export class GatewayClient {
     this.ws.on("error", (err) => {
       if (!this.ready) {
         this.readyReject?.(new Error(`Gateway connection failed: ${err.message}`));
+      } else {
+        // Reject all pending requests on post-connection errors
+        for (const [id, p] of this.pending) {
+          p.reject(new Error(`Gateway error: ${err.message}`));
+          clearTimeout(p.timeout);
+          this.pending.delete(id);
+        }
       }
     });
 
     this.ws.on("close", () => {
       this.ready = false;
       this.ws = null;
+      this.readyPromise = null;
+      this.readyResolve = null;
+      this.readyReject = null;
+      this.connectNonce = null;
       for (const [id, p] of this.pending) {
         p.reject(new Error("Gateway connection closed"));
         clearTimeout(p.timeout);
@@ -130,7 +141,7 @@ export class GatewayClient {
         mode: "cli",
       },
       caps: [],
-      scopes: ["operator.read", "operator.write", "operator.approvals"],
+      scopes: ["operator.read", "operator.write", "operator.approvals", "operator.admin"],
       auth: this.config.token ? { token: this.config.token } : undefined,
     };
 

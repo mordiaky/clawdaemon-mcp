@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getGatewayClient } from "../gateway/client.js";
-import { pollEvents, acknowledgeEvent, getEventHistory, pruneExpiredEvents, pushEvent } from "../events/queue.js";
+import { pollEvents, acknowledgeEvent, getEventHistory, pruneExpiredEvents } from "../events/queue.js";
 
 export function registerTools(server: McpServer): void {
   // --- Daemon Status ---
@@ -42,7 +42,7 @@ export function registerTools(server: McpServer): void {
           id: e.id,
           automationId: e.automationId,
           type: e.type,
-          payload: JSON.parse(e.payload),
+          payload: safeParse(e.payload),
           createdAt: e.createdAt,
         })),
       });
@@ -80,7 +80,7 @@ export function registerTools(server: McpServer): void {
           id: e.id,
           automationId: e.automationId,
           type: e.type,
-          payload: JSON.parse(e.payload),
+          payload: safeParse(e.payload),
           acknowledged: e.acknowledged,
           createdAt: e.createdAt,
           acknowledgedAt: e.acknowledgedAt,
@@ -223,4 +223,12 @@ function jsonResponse(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
   };
+}
+
+function safeParse(json: string): unknown {
+  try {
+    return JSON.parse(json);
+  } catch {
+    return json;
+  }
 }
