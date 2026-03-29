@@ -25,6 +25,35 @@ Claude Code  <--MCP stdio-->  ClawDaemon MCP Server  <--socket-->  OpenClaw Daem
 - [OpenClaw](https://github.com/openclaw/openclaw) installed locally
 - Node.js 22+
 
+## Setting Up OpenClaw
+
+ClawDaemon needs a running OpenClaw gateway to connect to. If you haven't set up OpenClaw yet:
+
+### 1. Install and build OpenClaw
+
+```bash
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+npx pnpm install
+npx pnpm build
+```
+
+> **Note:** OpenClaw uses pnpm, not npm. If you don't have pnpm installed globally, `npx pnpm` works fine.
+
+### 2. Start the gateway
+
+```bash
+node openclaw.mjs gateway run
+```
+
+The gateway starts on `http://127.0.0.1:18789` by default. You'll see a web UI at that address.
+
+### 3. Device pairing
+
+The first time you connect, OpenClaw will create a device identity and request pairing. You'll need to **approve the pairing request** from the gateway's web UI or CLI before the MCP connection will work.
+
+If you're connecting a new device or reconnecting after a reinstall, you may need to approve pairing again.
+
 ## Install
 
 ```bash
@@ -39,6 +68,14 @@ npm run build
 ```bash
 claude mcp add clawdaemon -- node /absolute/path/to/clawdaemon-mcp/build/server.js
 ```
+
+You can also add OpenClaw's built-in MCP server for direct messaging tools:
+
+```bash
+claude mcp add openclaw -- node /absolute/path/to/openclaw/openclaw.mjs mcp serve
+```
+
+After adding, **restart your Claude Code session** for the new tools to load.
 
 ## MCP Tools
 
@@ -80,6 +117,47 @@ claude mcp add clawdaemon -- node /absolute/path/to/clawdaemon-mcp/build/server.
 | `CLAWDAEMON_SOCKET` | `/tmp/clawdaemon.sock` | Path to daemon socket |
 | `CLAWDAEMON_DB` | `~/.clawdaemon/events.db` | Event queue database |
 | `CLAWDAEMON_EVENT_TTL` | `7d` | How long to keep unacknowledged events |
+
+## Troubleshooting
+
+### MCP server won't connect / tools not showing up
+
+1. **Restart Claude Code** — MCP tools only load at session start. After adding or fixing a server, restart.
+2. **Check the gateway is running** — Visit `http://127.0.0.1:18789` in your browser. If it's not loading, start it with `node openclaw.mjs gateway run` from your OpenClaw directory.
+3. **Check MCP server status** — Run `/mcp` in Claude Code to see which servers are connected and which have errors.
+
+### "Connection refused" or socket errors
+
+The OpenClaw gateway isn't running. Start it:
+
+```bash
+cd /path/to/openclaw
+node openclaw.mjs gateway run
+```
+
+### Stale device identity
+
+If OpenClaw was reinstalled or the gateway entrypoint changed, the old device identity may be invalid. Signs: connection errors even though the gateway is running.
+
+**Fix:**
+1. Delete the stale device identity from OpenClaw's data directory
+2. Restart the gateway: `node openclaw.mjs gateway run`
+3. Approve the new device's pairing request from the gateway web UI at `http://127.0.0.1:18789`
+
+### Gateway entrypoint changed after update
+
+If you updated OpenClaw and the gateway won't start, the entrypoint path may have moved. Reinstall/rebuild:
+
+```bash
+cd /path/to/openclaw
+npx pnpm install
+npx pnpm build
+node openclaw.mjs gateway run
+```
+
+### Tools load but return errors
+
+If MCP tools appear in Claude Code but return errors when called, the gateway is likely down or the device pairing expired. Check the gateway is running and re-approve pairing if needed.
 
 ## Why this exists
 
