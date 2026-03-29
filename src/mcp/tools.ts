@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getGatewayClient } from "../gateway/client.js";
@@ -108,12 +109,17 @@ export function registerTools(server: McpServer): void {
     "send_message",
     "Send a message through a connected OpenClaw messaging channel (Slack, Discord, Telegram, etc.)",
     {
-      channel: z.string().describe("Channel name or ID (e.g., 'slack', 'discord', 'telegram')"),
-      conversationId: z.string().describe("Conversation/chat/room ID to send to"),
-      text: z.string().describe("Message text to send"),
+      to: z.string().describe("Recipient — contact name, phone number, or chat ID"),
+      message: z.string().describe("Message text to send"),
+      channel: z.string().optional().describe("Channel plugin (e.g., 'telegram', 'slack', 'discord'). Auto-resolved if omitted."),
     },
-    async ({ channel, conversationId, text }) => {
-      return gatewayToolCall("message", { action: "send", channel, conversationId, text });
+    async ({ to, message, channel }) => {
+      return gatewayRequest("send", {
+        to,
+        message,
+        ...(channel ? { channel } : {}),
+        idempotencyKey: crypto.randomUUID(),
+      });
     }
   );
 
@@ -135,10 +141,18 @@ export function registerTools(server: McpServer): void {
       name: z.string().describe("Human-readable name for this automation"),
       schedule: z.string().describe("Cron expression (e.g., '0 9 * * *' for daily at 9am)"),
       action: z.string().describe("What to do when triggered — a description of the task"),
-      channel: z.string().optional().describe("Optional: messaging channel to send results to"),
+      description: z.string().optional().describe("Optional: longer description of the job"),
+      sessionTarget: z.enum(["main", "isolated"]).default("main").describe("Session to run in — 'main' or 'isolated'"),
     },
-    async ({ name, schedule, action, channel }) => {
-      return gatewayRequest("cron.add", { name, schedule, action, channel });
+    async ({ name, schedule, action, description, sessionTarget }) => {
+      return gatewayRequest("cron.add", {
+        name,
+        schedule: { kind: "cron", expr: schedule },
+        payload: { kind: "systemEvent", text: action },
+        sessionTarget,
+        wakeMode: "next-heartbeat",
+        ...(description ? { description } : {}),
+      });
     }
   );
 
@@ -165,10 +179,14 @@ export function registerTools(server: McpServer): void {
   // --- Browser Navigate ---
   server.tool(
     "browser_navigate",
-    "Open a URL in the OpenClaw browser automation engine",
+    "Navigate to a URL using the OpenClaw browser control",
     { url: z.string().url().describe("URL to navigate to") },
     async ({ url }) => {
-      return gatewayToolCall("web_fetch", { url });
+      return gatewayRequest("browser.request", {
+        method: "POST",
+        path: "/navigate",
+        body: { url },
+      });
     }
   );
 
@@ -180,7 +198,11 @@ export function registerTools(server: McpServer): void {
       selector: z.string().optional().describe("CSS selector to extract from (default: full page)"),
     },
     async ({ selector }) => {
-      return gatewayToolCall("web_fetch", { selector });
+      return gatewayRequest("browser.request", {
+        method: "GET",
+        path: "/content",
+        query: selector ? { selector } : undefined,
+      });
     }
   );
 
@@ -190,8 +212,9 @@ export function registerTools(server: McpServer): void {
     "Take a screenshot of the current browser page",
     {},
     async () => {
-      return jsonResponse({
-        error: "Browser screenshots require the OpenClaw desktop agent. Use browser_navigate + browser_extract for web content.",
+      return gatewayRequest("browser.request", {
+        method: "GET",
+        path: "/screenshot",
       });
     }
   );
@@ -208,16 +231,6 @@ async function gatewayRequest(method: string, params?: unknown) {
   }
 }
 
-async function gatewayToolCall(tool: string, args?: Record<string, unknown>) {
-  try {
-    const gw = getGatewayClient();
-    await gw.connect();
-    const result = await gw.request("tools_invoke", { tool, args });
-    return jsonResponse(result);
-  } catch (err) {
-    return jsonResponse({ error: (err as Error).message });
-  }
-}
 
 function jsonResponse(data: unknown) {
   return {
