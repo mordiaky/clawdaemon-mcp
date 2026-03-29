@@ -17,7 +17,10 @@
     "build": "tsc",
     "proxy": "tsx src/claude-proxy.ts",
     "test": "vitest",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio"
   },
   "keywords": [
     "mcp",
